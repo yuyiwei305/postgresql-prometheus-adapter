@@ -12,6 +12,7 @@ import (
   "sync"
   "context"
   "github.com/jackc/pgx/v4"
+  "github.com/jackc/pgx/v4/pgxpool"
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
 	  "github.com/prometheus/common/model"
@@ -154,7 +155,7 @@ func (c *PGWriter) RunPGWriter(l log.Logger, tid int, commitSecs int, commitRows
   c.Running = false
 }
 
-// Shutdown is a graceful shutdown mechanism 
+// Shutdown is a graceful shutdown mechanism
 func (c *PGWriter) PGWriterShutdown() {
   c.KeepRunning = false
 }
@@ -209,7 +210,7 @@ func Pop() *model.Samples {
 // Threaded writer
 type Client struct {
 	logger log.Logger
-  DB              *pgx.Conn
+  DB              *pgxpool.Pool
   cfg             *Config
 }
 
@@ -220,7 +221,7 @@ func NewClient(logger log.Logger, cfg *Config) *Client {
 		logger = log.NewNopLogger()
 	}
 
-  conn1, err := pgx.Connect(context.Background(), os.Getenv("DATABASE_URL"))
+  conn1, err := pgxpool.Connect(context.Background(), os.Getenv("DATABASE_URL"))
   if err != nil {
     fmt.Fprintln(os.Stderr, "Error: Unable to connect to database using DATABASE_URL=",os.Getenv("DATABASE_URL"))
     os.Exit(1)
@@ -367,9 +368,7 @@ func createOrderedKeys(m *map[string]string) []string {
 
 func (c *Client) Close() {
   if c.DB != nil {
-    if err1 := c.DB.Close(context.Background()); err1 != nil {
-      level.Error(c.logger).Log("msg", err1.Error())
-    }
+      c.DB.Close()
   }
 }
 
@@ -429,7 +428,9 @@ func (c *Client) Read(req *prompb.ReadRequest) (*prompb.ReadResponse, error) {
     command, err := c.buildCommand(q)
 
     if err != nil {
+      fmt.Println(err.Error())
       return nil, err
+
     }
 
     level.Debug(c.logger).Log("msg", "Executed query", "query", command)
@@ -483,12 +484,19 @@ func (c *Client) Read(req *prompb.ReadRequest) (*prompb.ReadResponse, error) {
         Timestamp: time.UnixNano() / 1000000,
         Value:     value,
       })
+
+      if err != nil {
+        rows.Close()
+        fmt.Printf("TEST Step999 print err : %s\n", err)
+        return nil, err
+      }
     }
 
     err = rows.Err()
     rows.Close()
 
     if err != nil {
+      rows.Close()
       return nil, err
     }
   }
@@ -500,10 +508,14 @@ func (c *Client) Read(req *prompb.ReadRequest) (*prompb.ReadResponse, error) {
       },
     },
   }
+
+  fmt.Printf("TEST Step13: %s\n", "ok!")
+
   for _, ts := range labelsToSeries {
     resp.Results[0].Timeseries = append(resp.Results[0].Timeseries, ts)
   }
 
+  fmt.Printf("TEST Step14: %s\n", "ok!")
   level.Debug(c.logger).Log("msg", "Returned response", "#timeseries", len(labelsToSeries))
 
   return &resp, nil
@@ -625,4 +637,3 @@ func anchorValue(str string) string {
 func (c Client) Name() string {
   return "PostgreSQL"
 }
-

@@ -372,4 +372,3 @@ func timeHandler(path string, handler http.Handler) http.Handler {
 	}
 	return http.HandlerFunc(f)
 }
-
